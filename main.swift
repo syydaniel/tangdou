@@ -1051,6 +1051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var brainFullscreenItem: NSMenuItem?
     var brainHintItem: NSMenuItem?
     var pauseItem: NSMenuItem?
+    var researchItem: NSMenuItem?
     var bodyItem: NSMenuItem?
     var requestedBody: BodyForm = BODY_FORM
 
@@ -1109,6 +1110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.petPanel?.update(summary: (self.paused ? "已暂停 · 照料时间也暂停\n" : "") + self.coordinator.petSummary(),
                                  paused: self.paused, resting: self.manualRest, family: self.coordinator.familyActions())
             self.petPanel?.updateResearch(self.coordinator.researchSummary())
+            let firstLine = self.coordinator.researchSummary().split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? "科研成长"
+            self.researchItem?.title = firstLine
+            self.statusItem.button?.title = "🪰 \(firstLine)"
         }
 
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
@@ -1186,6 +1190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "糖豆 Tangdou · 桌面果蝇", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: dataInfo, action: nil, keyEquivalent: "")
+        let research = NSMenuItem(title: "科研成长 Lv.1 · 0 篇 · 0 分", action: #selector(showPetPanel), keyEquivalent: "")
+        research.target = self; researchItem = research; menu.addItem(research)
         menu.addItem(.separator())
         func item(_ title: String, _ sel: Selector, _ key: String) -> NSMenuItem {
             let it = NSMenuItem(title: title, action: sel, keyEquivalent: key)
