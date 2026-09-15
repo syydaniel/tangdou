@@ -3,6 +3,7 @@ import Cocoa
 final class PetPanel {
     let panel: NSPanel
     private let status = NSTextField(wrappingLabelWithString: "正在醒来…")
+    private let researchStatus = NSTextField(wrappingLabelWithString: "科研成长 Lv.1 · 实验室新生")
     private let feed: NSButton
     private let rest: NSButton
     private let pause: NSButton
@@ -10,6 +11,7 @@ final class PetPanel {
     private let breed: NSButton
     private let sync: NSButton
     private let read: NSButton
+    private let nextScreen: NSButton
 
     init(target: AppDelegate) {
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 540),
@@ -29,6 +31,7 @@ final class PetPanel {
         breed = button("🥚 模拟繁育", #selector(AppDelegate.breedFamily))
         sync = button("📚 同步 Zotero", #selector(AppDelegate.syncZotero))
         read = button("📖 读下一篇", #selector(AppDelegate.readNextPaper))
+        nextScreen = button("🖥️ 飞到下一屏", #selector(AppDelegate.flyToNextDisplay))
         feed = button("🍬 喂一滴糖水", #selector(AppDelegate.feedPet))
         rest = button("🌙 休息一下", #selector(AppDelegate.restPet))
         pause = button("暂停", #selector(AppDelegate.pausePet))
@@ -37,6 +40,8 @@ final class PetPanel {
         title.textColor = NSColor(calibratedWhite: 0.15, alpha: 1)
         status.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
         status.textColor = NSColor(calibratedWhite: 0.25, alpha: 1)
+        researchStatus.font = .systemFont(ofSize: 12, weight: .medium)
+        researchStatus.textColor = NSColor(calibratedRed: 0.18, green: 0.36, blue: 0.48, alpha: 1)
         let note = NSTextField(wrappingLabelWithString: "在窗口边缘散步，累了就睡。\n靠近时轻一点，我可能会飞走。")
         note.font = .systemFont(ofSize: 13)
         note.textColor = NSColor(calibratedWhite: 0.35, alpha: 1)
@@ -44,7 +49,7 @@ final class PetPanel {
         foodNote.font = .systemFont(ofSize: 11)
         foodNote.textColor = NSColor(calibratedWhite: 0.4, alpha: 1)
         let row = NSStackView(views: [feed, rest]); row.spacing = 8
-        let row2 = NSStackView(views: [button("找到糖豆", #selector(AppDelegate.locatePet)), button("观察大脑", #selector(AppDelegate.toggleBrain))]); row2.spacing = 8
+        let row2 = NSStackView(views: [button("找到糖豆", #selector(AppDelegate.locatePet)), button("观察大脑", #selector(AppDelegate.toggleBrain)), nextScreen]); row2.spacing = 8
         let row3 = NSStackView(views: [pause, button("退出", #selector(AppDelegate.quitPet))]); row3.spacing = 8
         let familyRow = NSStackView(views: [partner, breed]); familyRow.spacing = 8
         let familyNote = NSTextField(wrappingLabelWithString: "加速生命周期：求偶 → 卵 → 幼虫 → 蛹 → 成虫\n约 2 分 15 秒一代，最多 3 只。伴侣与后代\n由行为规则驱动；这不是生殖神经模拟。")
@@ -53,7 +58,7 @@ final class PetPanel {
         let researchNote = NSTextField(wrappingLabelWithString: "科研成长：本地读取 Zotero 题录、摘要和 PDF 全文。\n不上传文献；成长积分来自阅读动作。")
         researchNote.font = .systemFont(ofSize: 11); researchNote.textColor = NSColor(calibratedWhite: 0.35, alpha: 1)
         let researchRow = NSStackView(views: [sync, read]); researchRow.spacing = 8
-        let stack = NSStackView(views: [title, note, status, row, foodNote, familyRow, familyNote, researchRow, researchNote, row2, row3])
+        let stack = NSStackView(views: [title, note, status, row, foodNote, familyRow, familyNote, researchRow, researchStatus, researchNote, row2, row3])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 17
         stack.translatesAutoresizingMaskIntoConstraints = false
         panel.contentView!.addSubview(stack)
@@ -75,6 +80,8 @@ final class PetPanel {
         feed.isEnabled = !paused; rest.isEnabled = !paused
         rest.title = resting ? "☀️ 起床啦" : "🌙 休息一下"
         pause.title = paused ? "继续" : "暂停"
+        nextScreen.isEnabled = !paused && NSScreen.screens.count > 1
     }
     func showMessage(_ message: String) { status.stringValue = message; show() }
+    func updateResearch(_ text: String) { researchStatus.stringValue = text }
 }

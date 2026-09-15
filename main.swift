@@ -745,6 +745,8 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     func feedPet() { enqueue { $0.care.offerFood() } }
     func setPetRest(_ rest: Bool) { enqueue { $0.care.setRest(rest) } }
     func locatePet() { enqueue { $0.locateRemaining = 6 } }
+    func displaysCount() -> Int { NSScreen.screens.count }
+    func nextDisplay() { }
 
     private func updateCareVisual(fly: Fly, dt: CGFloat) {
         locateRemaining = max(0, locateRemaining - dt)
@@ -1088,6 +1090,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.petPanel?.update(summary: (self.paused ? "已暂停 · 照料时间也暂停\n" : "") + self.coordinator.petSummary(),
                                  paused: self.paused, resting: self.manualRest, family: self.coordinator.familyActions())
+            self.petPanel?.updateResearch(self.coordinator.researchSummary())
         }
 
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
@@ -1215,6 +1218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if paused { pausePet() }
         coordinator.locatePet()
     }
+    @objc func flyToNextDisplay() { moveToNextDisplay() }
     @objc func addPartner() { guard !paused else { return }; coordinator.addPartner() }
     @objc func breedFamily() { guard !paused else { return }; coordinator.breedFamily() }
     @objc func restPet() {
