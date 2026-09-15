@@ -693,6 +693,72 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     private var fpsFrames = 0
     private var fpsWindowStart: TimeInterval = 0
     private let signalBuilder = SignalBuilder()
+    private var isPaused = false
+    func setPaused(_ value: Bool) { enqueue { c in c.isPaused = value; c.lastTime = nil } }
+    private var care = PetCare()
+    private var family = FlyFamily()
+    private var nurseryNode: SCNNode?
+    private var nurseryStage: FlyFamily.Stage = .alone
+    private var nurseryPos = CGPoint.zero
+    private var familyFlags = (partner: false, breed: false)
+    func familyActions() -> (partner: Bool, breed: Bool) {
+        lock.lock(); defer { lock.unlock() }; return familyFlags
+    }
+    func addPartner() { enqueue { c in
+        if c.family.addPartner() { c.addFlyNow() }
+    } }
+    func breedFamily() { enqueue { c in
+        guard c.family.canBreed else { return }
+        c.family.breed()
+        c.nurseryPos = c.flies.first?.pos ?? .zero
+    } }
+    private func updateFamily(dt: CGFloat) {
+        let hadChild = family.hasChild
+        family.advance(Double(dt))
+        if !hadChild && family.hasChild { addFlyNow() }
+        if family.stage != nurseryStage {
+            nurseryNode?.removeFromParentNode(); nurseryNode = nil
+            nurseryStage = family.stage
+            if [.egg, .larva, .pupa].contains(family.stage) {
+                let sphere = SCNSphere(radius: family.stage == .egg ? 5 : 8)
+                let mat = SCNMaterial()
+                mat.diffuse.contents = family.stage == .pupa ? NSColor.systemOrange : NSColor(calibratedWhite: 0.93, alpha: 1)
+                sphere.materials = [mat]
+                let node = SCNNode(geometry: sphere)
+                node.scale = SCNVector3(family.stage == .larva ? 2.5 : 1.5, 0.75, 0.6)
+                node.position = SCNVector3(nurseryPos.x, nurseryPos.y, 4)
+                scene.rootNode.addChildNode(node); nurseryNode = node
+            }
+        }
+    }
+    private var careNode: SCNNode?
+    private var locateRemaining: CGFloat = 0
+    private var careSummary = "正在醒来…"
+
+    func petSummary() -> String { lock.lock(); defer { lock.unlock() }; return careSummary }
+    func feedPet() { enqueue { $0.care.offerFood() } }
+    func setPetRest(_ rest: Bool) { enqueue { $0.care.setRest(rest) } }
+    func locatePet() { enqueue { $0.locateRemaining = 6 } }
+
+    private func updateCareVisual(fly: Fly, dt: CGFloat) {
+        locateRemaining = max(0, locateRemaining - dt)
+        if careNode == nil {
+            let shape = SCNTorus(ringRadius: 30, pipeRadius: 1.5)
+            let material = SCNMaterial()
+            material.lightingModel = .constant
+            material.diffuse.contents = NSColor.systemOrange
+            shape.materials = [material]
+            let node = SCNNode(geometry: shape)
+            node.eulerAngles.x = .pi / 2
+            scene.rootNode.addChildNode(node)
+            careNode = node
+        }
+        careNode?.isHidden = !care.hasFood && locateRemaining <= 0
+        careNode?.position = SCNVector3(fly.pos.x, fly.pos.y, 1)
+        careNode?.geometry?.firstMaterial?.diffuse.contents = care.hasFood ? NSColor.systemOrange : NSColor.systemMint
+        let scale: CGFloat = care.isEating ? 0.65 + 0.35 * CGFloat(care.foodRemaining / PetCare.mealDuration) : 1
+        careNode?.scale = SCNVector3(scale, scale, scale)
+    }
     private var msAccumulator: Double = 0
     private let simulationClock = SimulationClock()
     private var prevMouse: CGPoint?
@@ -866,6 +932,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         let mouse = mouseScene
         lock.unlock()
         for a in actions { a(self) }
+        guard !isPaused else { lastTime = t; return }
 
         guard let last = lastTime else { lastTime = t; return }
         let dt = CGFloat(min(0.05, max(0, t - last)))
@@ -875,6 +942,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     }
 
     private func advanceSimulation(dt: CGFloat, mouse: CGPoint?) {
+        updateFamily(dt: dt)
         var signals: BrainSignals? = nil
         if let sim = sim, let first = flies.first {
             let sensory = computeLoom(fly: first, mouse: mouse, dt: dt)
@@ -891,8 +959,9 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             // circadian + sleep neuromodulation. Compressed: the LIF neurons sit
             // just below threshold, so a raw multiplier silences them entirely —
             // siesta should mean "less active", not comatose.
-            sim.activityScale = (1 - (1 - activity) * 0.35) * (sleepy ? 0.75 : 1)
-            sim.sensoryGate = sleepy ? 0.55 : 1
+            let wantsSleep = sleepy || care.resting
+            sim.activityScale = (1 - (1 - activity) * 0.35) * (wantsSleep ? 0.75 : 1)
+            sim.sensoryGate = wantsSleep ? 0.55 : 1
             loomOverride = max(0, loomOverride - dt * 1.2)   // override decays
             msAccumulator += Double(dt) * 1000
             let steps = min(50, Int(msAccumulator + 1e-6))
@@ -901,7 +970,10 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
 
             var s = signalBuilder.make(sim, dt: dt)
             s.tempo = tempo
-            s.sleep = sleepy
+            s.sleep = wantsSleep
+            care.advance(dt: Double(dt), grounded: first.state != .flying,
+                         threatened: s.escape, asleep: wantsSleep)
+            s.feeding = care.isEating
             signals = s
         }
 
@@ -910,7 +982,9 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             fly.update(dt: dt, bounds: bounds, mouse: mouse, signals: i == 0 ? signals : nil)
         }
         if let first = flies.first {
-            lock.lock(); lastFlyPos = first.pos; lock.unlock()
+            updateCareVisual(fly: first, dt: dt)
+            let summary = care.summary(state: String(describing: first.state)) + "\n" + family.summary
+            lock.lock(); lastFlyPos = first.pos; careSummary = summary; familyFlags = (!family.hasPartner, family.canBreed); lock.unlock()
         }
     }
 }
@@ -921,12 +995,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         // only offer the display hop when there is somewhere to hop to
         moveDisplayItem?.isHidden = NSScreen.screens.count < 2
+        pauseItem?.title = paused ? "继续" : "暂停"
     }
 
     var window: NSWindow!
     var scnView: SCNView!
     var coordinator: Coordinator!
     var statusItem: NSStatusItem!
+    var petPanel: PetPanel?
+    var careTimer: Timer?
+    var manualRest = false
     var mouseTimer: Timer?
     var windowTimer: Timer?
     var clickMonitor: Any?
@@ -939,6 +1017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var moveDisplayItem: NSMenuItem?
     var brainFullscreenItem: NSMenuItem?
     var brainHintItem: NSMenuItem?
+    var pauseItem: NSMenuItem?
     var bodyItem: NSMenuItem?
     var requestedBody: BodyForm = BODY_FORM
 
@@ -973,7 +1052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scnView.backgroundColor = .clear
         scnView.allowsCameraControl = false
         scnView.antialiasingMode = .multisampling4X
-        scnView.preferredFramesPerSecond = 120   // ProMotion; caps at display refresh
+        scnView.preferredFramesPerSecond = 60   // ProMotion; caps at display refresh
         if ProcessInfo.processInfo.environment["DESKTOPFLY_FPS"] != nil {
             fputs("display max fps: \(NSScreen.main?.maximumFramesPerSecond ?? 0)\n", stderr)
         }
@@ -985,11 +1064,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let sim = sim, let pts = brainPoints {
             let wc = BrainWindowController(points: pts, sim: sim, screen: screen)
             wc.onFullscreenChange = { [weak self] in self?.syncFullscreenItem() }
-            wc.show()
+            // Brain view is opt-in for a quiet desktop companion.
             brainWC = wc
         }
 
         setupStatusItem()
+        petPanel = PetPanel(target: self)
+        showPetPanel()
+        careTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.petPanel?.update(summary: (self.paused ? "已暂停 · 照料时间也暂停\n" : "") + self.coordinator.petSummary(),
+                                 paused: self.paused, resting: self.manualRest, family: self.coordinator.familyActions())
+        }
 
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -1061,9 +1147,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "🪰"
+        statusItem.button?.title = "🪰 糖豆"
         let menu = NSMenu()
-        menu.addItem(withTitle: "Desktop Fly", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "糖豆 Tangdou · 桌面果蝇", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: dataInfo, action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         func item(_ title: String, _ sel: Selector, _ key: String) -> NSMenuItem {
@@ -1071,7 +1157,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.target = self
             return it
         }
-        menu.addItem(item("Pause", #selector(togglePause(_:)), "p"))
+        menu.addItem(item("照料糖豆…", #selector(showPetPanel), ""))
+        menu.addItem(item("喂一滴糖水", #selector(feedPet), ""))
+        menu.addItem(item("找到糖豆", #selector(locatePet), ""))
+        menu.addItem(.separator())
+        let pause = item("暂停", #selector(togglePause(_:)), "p")
+        pauseItem = pause; menu.addItem(pause)
         menu.addItem(item("Show/Hide Brain", #selector(toggleBrain), "b"))
         let full = item("Fullscreen Brain", #selector(toggleBrainFullscreen), "f")
         menu.addItem(full)
@@ -1084,8 +1175,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(move)
         moveDisplayItem = move
         menu.delegate = self
-        menu.addItem(item("Add Fly", #selector(addFly), "a"))
-        menu.addItem(item("Remove Fly", #selector(removeFly), "r"))
+        menu.addItem(item("找个伴侣", #selector(addPartner), "a"))
+        menu.addItem(item("开始模拟繁育", #selector(breedFamily), "r"))
         menu.addItem(item("Scare Flies", #selector(scareAll), "s"))
         let body = item("Body: Fruit Fly", #selector(toggleBody), "y")
         bodyItem = body
@@ -1096,10 +1187,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
     }
 
+    @objc func showPetPanel() { petPanel?.show() }
+    @objc func feedPet() {
+        guard !paused else { showPetPanel(); return }
+        if manualRest { manualRest = false; coordinator.setPetRest(false) }
+        coordinator.feedPet()
+    }
+    @objc func locatePet() {
+        if paused { pausePet() }
+        coordinator.locatePet()
+    }
+    @objc func addPartner() { guard !paused else { return }; coordinator.addPartner() }
+    @objc func breedFamily() { guard !paused else { return }; coordinator.breedFamily() }
+    @objc func restPet() {
+        guard !paused else { return }
+        manualRest.toggle(); coordinator.setPetRest(manualRest)
+    }
+    @objc func pausePet() {
+        paused.toggle(); scnView.isPlaying = !paused
+        coordinator.setPaused(paused)
+    }
+    @objc func quitPet() { NSApplication.shared.terminate(nil) }
+
     @objc func togglePause(_ sender: NSMenuItem) {
         paused.toggle()
         scnView.isPlaying = !paused
-        coordinator.lastTime = nil
+        coordinator.setPaused(paused)
         sender.title = paused ? "Resume" : "Pause"
     }
     @objc func toggleBrain() {
@@ -1150,6 +1263,8 @@ if let i = args.firstIndex(of: "--brainshot") {
     runBrainshot(path: args.count > i + 1 ? args[i + 1] : "brain.png")
     exit(0)
 }
+if args.contains("--familytest") { runFamilyTests(); exit(0) }
+if args.contains("--caretest") { runCareTests(); exit(0) }
 if args.contains("--simtest") {
     runSimtest()
 }

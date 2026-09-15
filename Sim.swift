@@ -70,6 +70,7 @@ final class SimulationClock {
 
 // What the brain tells the body each frame.
 struct BrainSignals {
+    var feeding = false // Tangdou care animation; not a gustatory circuit.
     var escape = false        // giant fiber spiked -> takeoff NOW
     var nervous: CGFloat = 0  // looming-detector population rate, 0..1
     var turnBias: CGFloat = 0 // rad/s steering from DNa01/DNa02 left-right rate difference
@@ -104,6 +105,7 @@ func findDataDir() -> URL? {
     let exeDir = URL(fileURLWithPath: CommandLine.arguments[0])
         .resolvingSymlinksInPath().deletingLastPathComponent()
     let candidates = [
+        Bundle.main.resourceURL?.appendingPathComponent("data") ?? exeDir.appendingPathComponent("data"),
         exeDir.appendingPathComponent("data"),
         URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("data"),
     ]

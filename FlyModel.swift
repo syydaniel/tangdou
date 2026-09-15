@@ -655,6 +655,11 @@ final class Fly {
             startFlight(bounds: bounds, awayFrom: mouse, escape: true)
             return
         }
+        // Hand-feeding is a pet rule. The genuine escape output above wins.
+        if s.feeding {
+            setState(.idle); speed = 0; dartTimer = 0; backwardTimer = 0
+            return
+        }
         // circadian sleep: enter, hold (no walk/groom/dart while asleep), wake to grooming
         if s.sleep {
             if state != .sleeping { setState(.sleeping); speed = 0; dartTimer = 0; backwardTimer = 0 }
