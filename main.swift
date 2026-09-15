@@ -741,11 +741,23 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     private var research = ResearchProgress()
     private var papers: [ZoteroPaper] = []
     private let zotero = ZoteroResearchService()
+    private var autoReading = false
+    private var autoIndex = 0
 
     func petSummary() -> String { lock.lock(); defer { lock.unlock() }; return careSummary }
     func researchSummary() -> String { lock.lock(); defer { lock.unlock() }; return "科研成长 Lv.\(research.level) · \(research.title)\n已读摘要 \(research.abstractsRead) · 积分 \(research.points)\n\(research.lastTitle)" }
     func syncZotero(completion: @escaping (String) -> Void) { zotero.fetchRecent { [weak self] result in guard let self else { return }; switch result { case .success(let p): self.papers = p; completion("已同步 Zotero：\(p.count) 篇") ; case .failure(let e): completion("Zotero 未连接：\(e.localizedDescription)") } } }
     func readNextPaper(completion: @escaping (String) -> Void) { guard let p = papers.first else { completion("请先点击“同步 Zotero”"); return }; research.abstractsRead += 1; research.points += 20; research.lastTitle = "正在读：\(p.title)"; completion("\(p.title)\n\(p.abstractText.isEmpty ? "Zotero 中暂无摘要，可打开 PDF 阅读。" : String(p.abstractText.prefix(420)))") }
+    func startAutoResearch() { guard !autoReading else { return }; autoReading = true; autoResearchStep() }
+    private func autoResearchStep() {
+        syncZotero { [weak self] _ in
+            guard let self else { return }
+            guard !self.papers.isEmpty else { self.autoReading = false; return }
+            let p = self.papers[self.autoIndex % self.papers.count]
+            self.autoIndex += 1; self.research.abstractsRead += 1; self.research.points += 20; self.research.lastTitle = "自动阅读：\(p.title)"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in self?.autoResearchStep() }
+        }
+    }
     func feedPet() { enqueue { $0.care.offerFood() } }
     func setPetRest(_ rest: Bool) { enqueue { $0.care.setRest(rest) } }
     func locatePet() { enqueue { $0.locateRemaining = 6 } }
@@ -1105,6 +1117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupStatusItem()
         petPanel = PetPanel(target: self)
         showPetPanel()
+        coordinator.startAutoResearch()
         careTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.petPanel?.update(summary: (self.paused ? "已暂停 · 照料时间也暂停\n" : "") + self.coordinator.petSummary(),
