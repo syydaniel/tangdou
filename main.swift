@@ -734,8 +734,14 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     private var careNode: SCNNode?
     private var locateRemaining: CGFloat = 0
     private var careSummary = "正在醒来…"
+    private var research = ResearchProgress()
+    private var papers: [ZoteroPaper] = []
+    private let zotero = ZoteroResearchService()
 
     func petSummary() -> String { lock.lock(); defer { lock.unlock() }; return careSummary }
+    func researchSummary() -> String { lock.lock(); defer { lock.unlock() }; return "科研成长 Lv.\(research.level) · \(research.title)\n已读摘要 \(research.abstractsRead) · 积分 \(research.points)\n\(research.lastTitle)" }
+    func syncZotero(completion: @escaping (String) -> Void) { zotero.fetchRecent { [weak self] result in guard let self else { return }; switch result { case .success(let p): self.papers = p; completion("已同步 Zotero：\(p.count) 篇") ; case .failure(let e): completion("Zotero 未连接：\(e.localizedDescription)") } } }
+    func readNextPaper(completion: @escaping (String) -> Void) { guard let p = papers.first else { completion("请先点击“同步 Zotero”"); return }; research.abstractsRead += 1; research.points += 20; research.lastTitle = "正在读：\(p.title)"; completion("\(p.title)\n\(p.abstractText.isEmpty ? "Zotero 中暂无摘要，可打开 PDF 阅读。" : String(p.abstractText.prefix(420)))") }
     func feedPet() { enqueue { $0.care.offerFood() } }
     func setPetRest(_ rest: Bool) { enqueue { $0.care.setRest(rest) } }
     func locatePet() { enqueue { $0.locateRemaining = 6 } }
@@ -1158,6 +1164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return it
         }
         menu.addItem(item("照料糖豆…", #selector(showPetPanel), ""))
+        menu.addItem(item("同步 Zotero", #selector(syncZotero), ""))
+        menu.addItem(item("读下一篇论文", #selector(readNextPaper), ""))
         menu.addItem(item("喂一滴糖水", #selector(feedPet), ""))
         menu.addItem(item("找到糖豆", #selector(locatePet), ""))
         menu.addItem(.separator())
@@ -1188,6 +1196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func showPetPanel() { petPanel?.show() }
+    @objc func syncZotero() { coordinator.syncZotero { [weak self] message in self?.petPanel?.showMessage(message) } }
+    @objc func readNextPaper() { coordinator.readNextPaper { [weak self] message in self?.petPanel?.showMessage(message) } }
     @objc func feedPet() {
         guard !paused else { showPetPanel(); return }
         if manualRest { manualRest = false; coordinator.setPetRest(false) }
