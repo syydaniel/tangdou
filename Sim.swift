@@ -71,6 +71,7 @@ final class SimulationClock {
 // What the brain tells the body each frame.
 struct BrainSignals {
     var feeding = false // Tangdou care animation; not a gustatory circuit.
+    var foodTarget: CGPoint? = nil // engineered desktop-food navigation target
     var escape = false        // giant fiber spiked -> takeoff NOW
     var nervous: CGFloat = 0  // looming-detector population rate, 0..1
     var turnBias: CGFloat = 0 // rad/s steering from DNa01/DNa02 left-right rate difference

@@ -10,6 +10,7 @@ struct PetCare {
     private(set) var meals = 0
     private var waiting = 0.0
     var hasFood: Bool { foodRemaining > 0 }
+    var isHungry: Bool { hunger > 0.22 && !hasFood }
 
     mutating func offerFood() {
         guard !hasFood else { return }

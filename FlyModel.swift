@@ -655,6 +655,10 @@ final class Fly {
             startFlight(bounds: bounds, awayFrom: mouse, escape: true)
             return
         }
+        if let target = s.foodTarget, state != .flying, state != .sleeping {
+            let d = hypot(target.x - pos.x, target.y - pos.y)
+            if d > 28 { turnTarget = atan2(target.y - pos.y, target.x - pos.x); setState(.walking); speed = min(70, max(24, d * 0.35)) }
+        }
         // Hand-feeding is a pet rule. The genuine escape output above wins.
         if s.feeding {
             setState(.idle); speed = 0; dartTimer = 0; backwardTimer = 0

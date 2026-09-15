@@ -732,6 +732,10 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         }
     }
     private var careNode: SCNNode?
+    private var foodNode: SCNNode?
+    private var foodPosition = CGPoint.zero
+    private var foodKind = "糖水"
+    private var foodSpawnTimer: CGFloat = 8
     private var locateRemaining: CGFloat = 0
     private var careSummary = "正在醒来…"
     private var research = ResearchProgress()
@@ -749,6 +753,19 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     func nextDisplay() { }
 
     private func updateCareVisual(fly: Fly, dt: CGFloat) {
+        foodSpawnTimer -= dt
+        if foodNode == nil && foodSpawnTimer <= 0 && care.isHungry {
+            foodSpawnTimer = 45
+            foodPosition = CGPoint(x: rnd((-bounds.width/2+120)...(bounds.width/2-120)), y: rnd((-bounds.height/2+120)...(bounds.height/2-120)))
+            foodKind = rnd(0...1) < 0.5 ? "糖水" : "花"
+            let geo = foodKind == "花" ? SCNTorus(ringRadius: 9, pipeRadius: 3) : SCNSphere(radius: 7)
+            let mat = SCNMaterial(); mat.lightingModel = .constant; mat.diffuse.contents = foodKind == "花" ? NSColor.systemPink : NSColor.systemOrange; geo.materials = [mat]
+            let node = SCNNode(geometry: geo); node.position = SCNVector3(foodPosition.x, foodPosition.y, 2); scene.rootNode.addChildNode(node); foodNode = node
+        }
+        if let node = foodNode {
+            let d = hypot(fly.pos.x - foodPosition.x, fly.pos.y - foodPosition.y)
+            if d < 28 { foodNode?.removeFromParentNode(); foodNode = nil; care.offerFood() }
+        }
         locateRemaining = max(0, locateRemaining - dt)
         if careNode == nil {
             let shape = SCNTorus(ringRadius: 30, pipeRadius: 1.5)
@@ -984,6 +1001,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             sim.step(steps)
 
             var s = signalBuilder.make(sim, dt: dt)
+            if foodNode != nil && care.isHungry { s.foodTarget = foodPosition }
             s.tempo = tempo
             s.sleep = wantsSleep
             care.advance(dt: Double(dt), grounded: first.state != .flying,
