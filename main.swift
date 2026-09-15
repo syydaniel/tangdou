@@ -845,6 +845,13 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             }
         }
     }
+    func crossScreenArrival() {
+        enqueue { c in
+            guard let fly = c.flies.first else { return }
+            fly.pos = CGPoint(x: 0, y: 0)
+            fly.startFlight(bounds: c.bounds, effort: 0.85)
+        }
+    }
     func setAmbient(typing: CGFloat, sleepy: Bool, tempo: CGFloat, activity: Float) {
         enqueue { c in
             c.typingLevel = typing; c.sleepy = sleepy; c.tempo = tempo; c.activity = activity
@@ -1141,6 +1148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.setFrame(screen.frame, display: true)
         scnView.frame = NSRect(origin: .zero, size: screen.frame.size)
         coordinator.retarget(size: screen.frame.size)
+        coordinator.crossScreenArrival()
         brainWC?.move(to: screen)
     }
 
