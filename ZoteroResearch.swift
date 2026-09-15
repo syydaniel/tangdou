@@ -29,8 +29,13 @@ final class ZoteroResearchService {
             do {
                 let items = try self.run(["--local", "--library-id", "0", "--library-type", "user", "items", "list", "--top", "--limit", "\(limit)", "--sort", "dateModified", "--direction", "desc", "--output", "json"])
                 let decoded = try JSONDecoder().decode([ZoteroItem].self, from: items)
-                let papers = decoded.filter { ["journalArticle", "conferencePaper", "preprint", "book"].contains($0.data.itemType) }.map {
-                    ZoteroPaper(key: $0.key, title: $0.data.title.isEmpty ? "无标题" : $0.data.title, authors: $0.data.creators.map { $0.name ?? [$0.firstName, $0.lastName].compactMap{$0}.joined(separator: " ") }.joined(separator: ", "), abstractText: $0.data.abstractNote, attachmentKey: nil, fullText: nil)
+                let candidates = decoded.filter { ["journalArticle", "conferencePaper", "preprint", "book"].contains($0.data.itemType) }
+                var papers: [ZoteroPaper] = []
+                for item in candidates {
+                    let attachment = try? self.run(["--local", "--library-id", "0", "--library-type", "user", "items", "children", item.key, "--output", "json"])
+                    let children = attachment.flatMap { try? JSONDecoder().decode([ChildItem].self, from: $0) } ?? []
+                    let pdf = children.first { $0.data.itemType == "attachment" && $0.data.contentType == "application/pdf" }
+                    papers.append(ZoteroPaper(key: item.key, title: item.data.title.isEmpty ? "无标题" : item.data.title, authors: item.data.creators.map { $0.name ?? [$0.firstName, $0.lastName].compactMap{$0}.joined(separator: " ") }.joined(separator: ", "), abstractText: item.data.abstractNote, attachmentKey: pdf?.key, fullText: nil))
                 }
                 DispatchQueue.main.async { completion(.success(papers)) }
             } catch { DispatchQueue.main.async { completion(.failure(error)) } }
@@ -46,6 +51,8 @@ final class ZoteroResearchService {
         return out.fileHandleForReading.readDataToEndOfFile()
     }
     private struct ZoteroItem: Codable { let key: String; let data: ItemData }
+    private struct ChildItem: Codable { let key: String; let data: ChildData }
+    private struct ChildData: Codable { let itemType: String; let contentType: String? }
     private struct ItemData: Codable { let title: String; let abstractNote: String; let itemType: String; let creators: [Creator] }
     private struct Creator: Codable { let firstName: String?; let lastName: String?; let name: String? }
     private struct ZoteroFullText: Codable { let content: String }
